@@ -84,7 +84,9 @@ The tests all run on testnet, because near-sdk's local `unit-testing` feature ne
 
 ## Frontend
 
-`web/` is a single page: wallet connection through NEAR Connect, circle state, and every circle action. **Run demo** walks through a full circle and a missed deadline on testnet, with no wallet, in about 2.5 minutes.
+`web/` is a single-page dashboard: wallet connection through NEAR Connect, circle stats, payout schedule, transaction history, members, approvals and notifications. **Run demo** walks through a full circle and a missed deadline on testnet, with no wallet, in under 3 minutes.
+
+Nothing on the page is mocked. Circle state comes from the contract and DAO. Past transactions come from FastNEAR's transaction API, because the contract keeps no history. If that API is unavailable, totals show as unknown and the demo still runs. The chain has no list of all circles, so the dashboard lists two real sample circles plus the ones opened in that browser.
 
 ```bash
 npm run demo:prepare -- 5   # deploys 5 demo runs (20 NEAR, not recoverable), and writes web/.env.local
@@ -96,7 +98,7 @@ npm run dev                 # http://localhost:5173
 
 - **Keys:** the demo's keys are server-only environment variables (`DEMO_KEY_M1`, `DEMO_KEY_M2`, `DEMO_KEY_M3`), read by `web/api/demo.js`. That function signs only the fixed steps in `web/src/demo-steps.js`, on the circles in `web/src/demo-config.js`. Never give these variables a `VITE_` prefix, because Vite copies those into the public page.
 - **Deploying:** create a Vercel project with `web` as its root directory, and set the three keys in its environment variables.
-- **Withdrawal outcomes:** a proposal's status does not say whether money moved. The page reads the circle's own log line from the vote's transaction. If this browser never saw that transaction, it shows "Not confirmed" rather than guessing.
+- **Withdrawal outcomes:** a proposal's status does not say whether money moved. The page reads the circle's own log line from the vote's transaction, through the history API or this browser's own votes. If neither is available, it shows "Not confirmed" rather than guessing.
 - **Demo runs are used up:** each run takes two fresh circles. Run `npm run demo:prepare` again to add more, which also drops used ones. An interrupted run's circles are not reused.
 - **Cleanup deletes the demo accounts:** do not run `npm run cleanup` while the demo needs to work.
 

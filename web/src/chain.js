@@ -2,7 +2,8 @@
 // Public endpoints are rate limited, so a read moves to the next one when it is refused.
 const RPC_URLS = ["https://test.rpc.fastnear.com", "https://rpc.testnet.near.org", "https://near-testnet.drpc.org"];
 let preferred = 0;
-export const txUrl = (hash) => `https://testnet.nearblocks.io/txns/${hash}`;
+// NEAR Rocks was checked in a real browser and shows the transaction. NearBlocks' testnet API returned nothing.
+export const txUrl = (hash) => `https://testnet.near.rocks/tx/${hash}`;
 const YOCTO_PER_NEAR = 10n ** 24n;
 
 async function rpc(method, params) {

@@ -1,11 +1,13 @@
+import "./styles.css";
 import { chainNowMs, failuresIn, fetchTransaction, formatNear, loadWithdrawals, parseNear, txUrl, view } from "./chain.js";
 import { buildDaoPolicy } from "./dao-policy.js";
 import { STEPS, runDemo } from "./demo-steps.js";
-import { circleLogs, withdrawalOutcome } from "./outcome.js";
+import { buildHistory, fetchCircleTransactions } from "./history.js";
+import { circleLogs, readWithdrawalLogs, withdrawalOutcome } from "./outcome.js";
+import { approvalsView, circleHead, circleList, escapeHtml, historyFilters, historyView, membersView, notificationsView, scheduleView, statCards } from "./views.js";
 import { connectWallet, disconnectWallet, functionCall, sendTransaction, watchWallet } from "./wallet.js";
 
 const $ = (id) => document.getElementById(id);
-const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const FACTORY = "sputnikv2.testnet";
 const DAO_DEPOSIT = 6n * 10n ** 24n;
 const CIRCLE_FUNDING = 2n * 10n ** 24n;
@@ -13,8 +15,63 @@ const PROPOSAL_PERIOD_NS = String(72n * 3600n * 1_000_000_000n);
 const PAYOUT_NOTE_MS = 4000;
 
 const REFRESH_MS = 5000;
-const app = { signer: null, circleId: null, circle: null, policy: null, withdrawals: [], clockOffsetMs: 0, demoRunning: false, readFailed: false };
+const HISTORY_RETRY_MS = 8000;
+const HISTORY_SETTLE_MS = 24000; // The history service can lag the chain by a few seconds.
+const KNOWN_LIMIT = 8;
+// Real circles from earlier demo runs, so the first view is not empty: one that finished with an
+// early withdrawal repaid, and one that missed its deadline with a too-late approval.
+const SAMPLE_CIRCLES = ["demo-full-dec9b2.ajo-c81e59-deployer.testnet", "demo-late-337121.ajo-c81e59-deployer.testnet"];
+
+const app = {
+  signer: null, circleId: null, circle: null, policy: null, withdrawals: [], clockOffsetMs: 0, demoRunning: false, readFailed: false,
+  // undefined while loading, and null when the history service cannot be reached.
+  events: undefined, proposalLogs: null, historySignature: null, historyFreshUntil: 0, historyFetchedAt: 0, historyFilter: "all",
+  sessionTxs: [], known: new Map(),
+};
 const chainNow = () => Date.now() + app.clockOffsetMs;
+
+/** Skips the write when nothing changed, which keeps scroll positions and open controls in place. */
+const lastHtml = new Map();
+function setHtml(id, html) {
+  if (lastHtml.get(id) === html) return false;
+  lastHtml.set(id, html);
+  $(id).innerHTML = html;
+  return true;
+}
+
+// --- The circles this browser knows about. The chain has no list of all circles.
+function savedCircles() {
+  try {
+    return JSON.parse(localStorage.getItem("ajo-circles")) ?? [];
+  } catch {
+    return [];
+  }
+}
+function rememberCircle(circleId) {
+  if (SAMPLE_CIRCLES.includes(circleId)) return;
+  try {
+    const list = [circleId, ...savedCircles().filter((id) => id !== circleId)].slice(0, KNOWN_LIMIT);
+    localStorage.setItem("ajo-circles", JSON.stringify(list));
+  } catch {
+    // Without storage the circle is still listed until the page is reloaded.
+  }
+}
+function renderCircleList() {
+  const known = [...app.known.entries()].map(([id, circle]) => ({ id, circle, pinned: SAMPLE_CIRCLES.includes(id) }));
+  setHtml("circle-list", circleList(known, app.circleId));
+}
+async function loadKnownCircles() {
+  const ids = [...new Set([...savedCircles(), ...app.known.keys(), ...SAMPLE_CIRCLES])];
+  for (const id of ids) if (!app.known.has(id)) app.known.set(id, null);
+  renderCircleList();
+  await Promise.allSettled(ids.map(async (id) => { app.known.set(id, await view(id, "get_circle")); }));
+  renderCircleList();
+  renderStats();
+}
+function renderStats() {
+  const active = [...app.known.values()].filter((circle) => circle?.phase === "Active").length;
+  setHtml("stats", statCards(app.circle, app.events ?? null, active));
+}
 
 function showError(error) {
   const message = error ? String(error.message ?? error) : "";
@@ -69,43 +126,21 @@ async function logsFor(daoId, proposalId, circleId) {
 }
 
 // --- Rendering
-function renderState() {
+const memberCount = () => app.policy?.roles[0].kind.Group?.length ?? app.circle?.invited.length ?? 0;
+
+function renderCircle() {
   const { circle, circleId } = app;
   if (!circle) return;
-  const paid = new Set(circle.paid_this_round);
-  const rows = circle.members.map((member, turn) => {
-    const notes = [];
-    if (turn === circle.round) notes.push("wins this round");
-    else if (turn < circle.round) notes.push("has had their turn");
-    if (circle.phase === "Active") notes.push(paid.has(member) ? "paid" : "not paid");
-    // Reclaiming removes a member from the list, so on a closed circle it no longer means "never paid".
-    if (circle.phase === "Closed") notes.push(paid.has(member) ? "can reclaim" : "nothing left to reclaim");
-    return `<li><code>${escapeHtml(member)}</code>: ${escapeHtml(notes.join(", "))}</li>`;
-  }).join("");
-  const waiting = circle.invited.filter((account) => !circle.members.includes(account));
-  const debts = circle.debts.map((debt) =>
-    `<li><code>${escapeHtml(debt.debtor)}</code> owes <code>${escapeHtml(debt.creditor)}</code> ${formatNear(debt.amount)}</li>`).join("");
-  const phaseText = {
-    Joining: "Waiting for members to join",
-    Active: "Active",
-    Finished: "Finished: every member has had a turn",
-    Closed: "Closed: a round missed its deadline. Members who paid it can reclaim.",
-  }[circle.phase];
-  const roundText = circle.phase === "Finished" ? `${circle.members.length} of ${circle.members.length} completed` : `${circle.round + 1} of ${circle.invited.length}`;
-  $("state").innerHTML = `
-    <p><code>${escapeHtml(circleId)}</code></p>
-    <p><strong>${escapeHtml(phaseText)}</strong></p>
-    <ul>
-      <li>Round: ${roundText}</li>
-      <li>Winner this round: ${circle.winner ? `<code>${escapeHtml(circle.winner)}</code>` : "none"}</li>
-      <li>Pot: <strong>${formatNear(circle.pot)}</strong></li>
-      <li>Contribution: ${formatNear(circle.contribution)} per round</li>
-      <li>Deadline: <span id="countdown"></span></li>
-    </ul>
-    ${rows ? `<h3>Members in rotation order</h3><ul>${rows}</ul>` : ""}
-    ${waiting.length ? `<p>Not joined yet: ${waiting.map((a) => `<code>${escapeHtml(a)}</code>`).join(", ")}</p>` : ""}
-    ${debts ? `<h3>Early withdrawals still owed</h3><ul>${debts}</ul>` : ""}`;
-  renderCountdown();
+  $("circle-head").hidden = false;
+  if (setHtml("circle-head", circleHead(circle, circleId))) renderCountdown();
+  renderStats();
+  renderCircleList();
+  setHtml("schedule", scheduleView(circle, app.events ?? null));
+  setHtml("members", membersView(circle, app.events ?? null, app.withdrawals));
+  setHtml("history-filter", historyFilters(app.historyFilter));
+  setHtml("history", historyView(app.events, app.historyFilter, app.sessionTxs));
+  setHtml("member-options", circle.members.map((member) => `<option value="${escapeHtml(member)}"></option>`).join(""));
+  renderActions();
 }
 
 function renderCountdown() {
@@ -113,12 +148,12 @@ function renderCountdown() {
   if (!element || !app.circle) return;
   const deadline = app.circle.round_deadline_ns;
   if (!deadline) {
-    element.textContent = app.circle.phase === "Joining" ? "starts when everyone has joined" : "none";
+    element.textContent = app.circle.phase === "Joining" ? "Not started" : "None";
     return;
   }
   const left = Math.floor((Number(BigInt(deadline) / 1_000_000n) - chainNow()) / 1000);
   if (app.circle.phase === "Closed" || left <= 0) {
-    element.textContent = "passed";
+    element.textContent = "Passed";
     return;
   }
   const parts = [[Math.floor(left / 86400), "d"], [Math.floor(left / 3600) % 24, "h"], [Math.floor(left / 60) % 60, "m"], [left % 60, "s"]];
@@ -130,15 +165,15 @@ function renderActions() {
   if (!circle) return;
   const buttons = [];
   if (!signer) {
-    $("actions").innerHTML = "<p>Connect a wallet to join, pay or reclaim.</p>";
+    setHtml("actions", "<p>Connect a wallet to join, pay or reclaim.</p>");
     return;
   }
   if (circle.phase === "Joining" && circle.invited.includes(signer) && !circle.members.includes(signer)) buttons.push(["join", "Join this circle"]);
   if (circle.phase === "Active" && circle.members.includes(signer) && !circle.paid_this_round.includes(signer)) buttons.push(["contribute", `Pay ${formatNear(circle.contribution)}`]);
   if (circle.phase === "Closed" && circle.paid_this_round.includes(signer)) buttons.push(["reclaim", "Reclaim my money"]);
-  $("actions").innerHTML = buttons.length
-    ? buttons.map(([action, text]) => `<button data-action="${action}">${escapeHtml(text)}</button>`).join("")
-    : `<p>Nothing for <code>${escapeHtml(signer)}</code> to do in this circle right now.</p>`;
+  setHtml("actions", buttons.length
+    ? buttons.map(([action, text]) => `<button class="button button-primary" data-action="${action}">${escapeHtml(text)}</button>`).join("")
+    : `<p>Nothing for ${escapeHtml(signer)} to do in this circle right now.</p>`);
 }
 
 function voteControl(item) {
@@ -150,29 +185,50 @@ function voteControl(item) {
   if (chainNow() >= expiresMs) return "<p>This request's voting period is over.</p>";
   if (circle.phase === "Finished" || (circle.phase === "Active" && item.request.round !== circle.round)) return "<p>This request's round has ended.</p>";
   const note = circle.phase === "Closed" ? "<p>The deadline has passed: approving moves no money and returns the proposer's bond.</p>" : "";
-  return `${note}<button data-action="approve" data-id="${item.id}">Approve</button>`;
+  return `${note}<button class="button button-primary" data-action="approve" data-id="${item.id}">Approve</button>`;
+}
+
+/** The circle's log lines for a proposal, from the history service or this browser's own votes. */
+async function loadProposalLogs(item) {
+  const fromHistory = app.proposalLogs?.get(item.id);
+  if (fromHistory && readWithdrawalLogs(fromHistory)) return fromHistory;
+  if (item.status !== "Approved") return fromHistory ?? null;
+  return (await logsFor(app.circle.dao_id, item.id, app.circleId)) ?? fromHistory ?? null;
 }
 
 async function renderProposals() {
-  const { circle, circleId, withdrawals } = app;
+  const { circle, withdrawals } = app;
   if (!circle) return;
-  if (withdrawals.length === 0) {
-    $("proposals").innerHTML = "<p>No early withdrawals requested.</p>";
+  const logs = new Map(await Promise.all(withdrawals.map(async (item) => [item.id, await loadProposalLogs(item)])));
+  if (circle !== app.circle) return; // A newer read has replaced this one.
+  setHtml("proposals", approvalsView(circle, withdrawals, memberCount(), (id) => logs.get(id) ?? null, voteControl));
+  setHtml("notifications", notificationsView(circle, app.events ?? null, withdrawals, logs, memberCount()));
+}
+
+/** Reads the history only when the circle has changed, because the chain's state says when that is. */
+async function refreshHistory(circleId) {
+  const { circle, withdrawals } = app;
+  const signature = JSON.stringify([circle.phase, circle.round, circle.pot, circle.members.length, circle.paid_this_round.length, withdrawals.map((item) => item.status)]);
+  const now = Date.now();
+  if (signature !== app.historySignature) {
+    app.historySignature = signature;
+    app.historyFreshUntil = now + HISTORY_SETTLE_MS;
+  } else if (now > app.historyFreshUntil && app.events) {
     return;
   }
-  const memberCount = app.policy.roles[0].kind.Group?.length ?? circle.invited.length;
-  const rows = await Promise.all(withdrawals.map(async (item) => {
-    const logs = item.status === "Approved" ? await logsFor(circle.dao_id, item.id, circleId) : null;
-    const outcome = withdrawalOutcome(item.status, logs);
-    const yes = Object.values(item.votes).filter((vote) => vote === "Approve").length;
-    return `<div class="proposal" data-outcome="${outcome.key}">
-      <div>#${item.id}: ${formatNear(item.request.amount)} to <code>${escapeHtml(item.request.recipient)}</code>, round ${item.request.round + 1}. ${yes} of ${memberCount} approved.</div>
-      <div>DAO status: ${escapeHtml(item.status)}</div>
-      <div class="outcome">What really happened: ${escapeHtml(outcome.text)}</div>
-      ${voteControl(item)}
-    </div>`;
-  }));
-  $("proposals").innerHTML = rows.join("");
+  if (now - app.historyFetchedAt < HISTORY_RETRY_MS) return;
+  app.historyFetchedAt = now;
+  try {
+    const transactions = await fetchCircleTransactions(circleId);
+    if (circleId !== app.circleId) return;
+    const { events, proposalLogs } = buildHistory(transactions, circleId);
+    Object.assign(app, { events, proposalLogs });
+  } catch (error) {
+    if (circleId !== app.circleId) return;
+    // Totals become unknown rather than wrong. The demo and everything else carry on.
+    if (!app.events) Object.assign(app, { events: null, proposalLogs: null });
+    console.warn("History unavailable:", error.message);
+  }
 }
 
 // --- Loading
@@ -193,10 +249,15 @@ async function refresh() {
       showPayoutNote(`Round ${previous.round + 1} complete: payout sent to ${previous.members[previous.round]}.`);
     }
     Object.assign(app, { circle, policy, withdrawals, clockOffsetMs: now - Date.now() });
+    app.known.set(circleId, circle);
+    rememberCircle(circleId);
     if (app.readFailed) showError(null); // A passing read clears an earlier failed one.
     app.readFailed = false;
-    renderState();
-    renderActions();
+    renderCircle();
+    await renderProposals();
+    await refreshHistory(circleId);
+    if (circleId !== app.circleId) return;
+    renderCircle();
     await renderProposals();
   } catch (error) {
     app.readFailed = true;
@@ -208,9 +269,10 @@ async function refresh() {
 
 function openCircle(circleId) {
   showError(null);
-  app.circleId = circleId;
-  app.circle = null;
+  if (circleId !== app.circleId) lastHtml.clear();
+  Object.assign(app, { circleId, circle: null, withdrawals: [], events: undefined, proposalLogs: null, historySignature: null, historyFreshUntil: 0, historyFetchedAt: 0 });
   $("circle-id").value = circleId;
+  renderCircleList();
   const url = new URL(location.href);
   url.searchParams.set("circle", circleId);
   history.replaceState(null, "", url);
@@ -246,6 +308,18 @@ $("actions").addEventListener("click", (event) => {
     reclaim: () => functionCall("reclaim", {}),
   };
   act(() => signAndCheck(circleId, [calls[action]()]));
+});
+
+$("circle-list").addEventListener("click", (event) => {
+  const id = event.target.closest("[data-circle]")?.dataset.circle;
+  if (id && id !== app.circleId) openCircle(id);
+});
+
+$("history-filter").addEventListener("click", (event) => {
+  const filter = event.target.dataset?.filter;
+  if (!filter) return;
+  app.historyFilter = filter;
+  renderCircle();
 });
 
 $("proposals").addEventListener("click", (event) => {
@@ -304,7 +378,7 @@ $("create-form").addEventListener("submit", async (event) => {
   const status = (text) => { $("create-status").textContent = text; };
   try {
     if (!app.signer) throw new Error("Connect a wallet first.");
-    const members = [...new Set($("members").value.split(/\s+/).filter(Boolean))];
+    const members = [...new Set($("members-input").value.split(/\s+/).filter(Boolean))];
     if (members.length < 2) throw new Error("A circle needs at least 2 different members.");
     const contribution = parseNear($("contribution").value);
     if (contribution <= 0n) throw new Error("The contribution must be more than zero.");
@@ -347,6 +421,7 @@ const log = (html, className = "") => {
   item.className = className;
   item.innerHTML = html;
   $("demo-log").append(item);
+  $("demo-log").scrollTop = $("demo-log").scrollHeight;
   return item;
 };
 
@@ -385,7 +460,10 @@ $("run-demo").addEventListener("click", async () => {
       waitForDeadline,
       onStart: (run) => {
         daoId = run.daoId;
-        log(`The accounts are <code>m1</code>, <code>m2</code> and <code>m3</code>. Each contribution is 0.1 NEAR.`);
+        log("Three test accounts, m1, m2 and m3, each contribute 0.1 NEAR per round.");
+        rememberCircle(run.late);
+        rememberCircle(run.full);
+        loadKnownCircles();
       },
       onSection: (text) => log(escapeHtml(text), "section-title"),
       onStep: (step, circleId) => {
@@ -400,6 +478,7 @@ $("run-demo").addEventListener("click", async () => {
           : `${escapeHtml(step.text)}. Done.`);
         finishedSteps += 1;
         setDemoProgress(finishedSteps / totalSteps, true);
+        if (result.hash) app.sessionTxs.unshift({ text: step.text, hash: result.hash });
         if (step.action === "vote") saveVote(daoId, result.proposalId, result.hash, result.sender);
         if (step.id === "late-vote-m3") tooLateProposal = result.proposalId;
       },
@@ -408,8 +487,8 @@ $("run-demo").addEventListener("click", async () => {
     const seconds = Math.round((Date.now() - started) / 1000);
     const { status } = await view(daoId, "get_proposal", { id: tooLateProposal });
     const outcome = withdrawalOutcome(status, await logsFor(daoId, tooLateProposal, app.circleId));
-    log(`Demo finished in ${seconds} seconds.`, "section-title");
-    log(`The late approval's DAO status is ${escapeHtml(status)}, but what really happened: <strong>${escapeHtml(outcome.text)}</strong>`);
+    log(`<strong>Demo finished in ${seconds} seconds.</strong> The late approval's DAO status is ${escapeHtml(status)}, but what really happened: <strong>${escapeHtml(outcome.text)}</strong>`, "result");
+    loadKnownCircles();
     setDemoProgress(1, false);
   } catch (error) {
     log(`The demo stopped: ${escapeHtml(error.message ?? error)}`, "error");
@@ -430,15 +509,18 @@ $("disconnect").addEventListener("click", () => disconnectWallet().then(() => se
 
 function setSigner(accountId) {
   app.signer = accountId;
-  $("wallet-status").textContent = accountId ? `Connected as ${accountId}.` : "Not connected.";
+  $("wallet-status").textContent = accountId ?? "";
   $("connect").hidden = Boolean(accountId);
   $("disconnect").hidden = !accountId;
   renderActions();
+  renderCircle();
   renderProposals();
 }
 watchWallet(setSigner);
 
 setInterval(renderCountdown, 1000);
 setInterval(refresh, REFRESH_MS);
+renderStats();
+loadKnownCircles();
 const fromUrl = new URL(location.href).searchParams.get("circle");
-if (fromUrl) openCircle(fromUrl);
+openCircle(fromUrl ?? SAMPLE_CIRCLES[0]);

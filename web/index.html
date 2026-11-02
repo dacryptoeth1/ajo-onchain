@@ -3,115 +3,110 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f14">
   <title>Ajo Circle</title>
   <link rel="icon" href="data:,">
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; line-height: 1.45; }
-    section { border-top: 1px solid #999; padding: 12px 0; }
-    h1, h2 { margin: 0 0 8px; }
-    label { display: block; margin: 8px 0; }
-    input, textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; padding: 4px; }
-    button { font: inherit; padding: 4px 10px; margin: 4px 4px 4px 0; }
-    code { overflow-wrap: anywhere; }
-    li { margin: 4px 0; }
-    #demo-log { padding-left: 20px; list-style: none; }
-    .section-title { list-style: none; font-weight: bold; margin: 12px 0 4px -20px; }
-    .proposal { border: 1px solid #999; padding: 8px; margin: 8px 0; }
-    .outcome { font-weight: bold; }
-    .error { color: #b00020; font-weight: bold; overflow-wrap: anywhere; }
-
-    /* Only opacity and transform are animated, so these stay cheap on slow devices. */
-    body { animation: fade-in 400ms ease-out both; }
-    @keyframes fade-in { from { opacity: 0; } }
-
-    #demo-log li { animation: step-in 250ms ease-out; transition: opacity 250ms ease-out; }
-    #demo-log li.pending { opacity: 0.6; }
-    @keyframes step-in { from { opacity: 0; transform: translateY(4px); } }
-
-    .progress { position: relative; height: 6px; margin: 8px 0; overflow: hidden; background: #ddd; border-radius: 3px; }
-    .progress-fill { height: 100%; background: #1a7f4b; transform: scaleX(0); transform-origin: left; transition: transform 400ms ease-out; }
-    /* Keeps moving during the long wait for the deadline, when no step finishes. */
-    .progress.running::after {
-      content: ""; position: absolute; inset: 0; width: 30%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
-      animation: progress-sweep 1400ms linear infinite;
-    }
-    @keyframes progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-
-    .check { display: inline-block; color: #1a7f4b; font-weight: bold; animation: check-pop 350ms ease-out; }
-    @keyframes check-pop { from { opacity: 0; transform: scale(0.4); } 60% { transform: scale(1.3); } }
-
-    .payout-note { display: inline-block; margin: 0 0 8px; padding: 4px 10px; color: #0f5c35; background: #e3f4ea; border-radius: 4px; }
-    .payout-note.show { animation: note-show 4s ease-out both; }
-    @keyframes note-show {
-      from { opacity: 0; transform: translateY(4px); }
-      8%, 85% { opacity: 1; transform: none; }
-      to { opacity: 0; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation: none !important; transition: none !important; }
-    }
-  </style>
 </head>
 <body>
-  <h1>Ajo Circle</h1>
-  <p>A rotating savings circle on NEAR testnet. Members pay in each round, and the pot goes to that round's winner. Taking money early needs approval from every member.</p>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">A</span>Ajo Circle <span class="pill">Testnet</span></div>
+      <div class="wallet">
+        <span id="wallet-status"></span>
+        <button id="connect" class="button">Connect wallet</button>
+        <button id="disconnect" class="button" hidden>Disconnect</button>
+      </div>
+    </header>
 
-  <section>
-    <h2>See it work</h2>
-    <p>No wallet needed. This runs a full circle on testnet with three test accounts, in under 3 minutes.</p>
-    <button id="run-demo">Run demo</button>
-    <div id="demo-progress" class="progress" role="progressbar" aria-label="Demo progress" aria-valuemin="0" aria-valuemax="100" hidden><div class="progress-fill"></div></div>
-    <ul id="demo-log"></ul>
-  </section>
+    <main>
+      <section class="card demo" aria-labelledby="demo-title">
+        <div class="demo-intro">
+          <div class="demo-copy">
+            <h1 id="demo-title">Watch a savings circle run on NEAR</h1>
+            <p>Members pay in each round, the pot goes to that round's winner, and taking money early needs every member's approval. No wallet needed: this runs real transactions on testnet in under 3 minutes.</p>
+          </div>
+          <button id="run-demo" class="button button-primary button-large">Run demo</button>
+        </div>
+        <div id="demo-progress" class="progress" role="progressbar" aria-label="Demo progress" aria-valuemin="0" aria-valuemax="100" hidden><div class="progress-fill"></div></div>
+        <ul id="demo-log"></ul>
+      </section>
 
-  <section>
-    <h2>Wallet</h2>
-    <p id="wallet-status">Not connected.</p>
-    <button id="connect">Connect wallet</button>
-    <button id="disconnect" hidden>Disconnect</button>
-  </section>
+      <h2 class="section-label">Circles known to this browser</h2>
+      <div id="circle-list" class="circle-list"></div>
 
-  <section>
-    <h2>Open a circle</h2>
-    <form id="load-form">
-      <label>Circle account <input id="circle-id" required placeholder="circle.yourname.testnet"></label>
-      <button>Open</button>
-    </form>
-  </section>
+      <p id="error" class="error" role="alert" hidden></p>
+      <div id="stats" class="stats"></div>
+      <section id="circle-head" class="card circle-head" aria-label="Selected circle" hidden></section>
 
-  <section>
-    <h2>Circle</h2>
-    <p id="error" class="error" role="alert" hidden></p>
-    <p id="payout-note" class="payout-note" role="status" hidden></p>
-    <div id="state"><p>No circle open.</p></div>
-    <div id="actions"></div>
-  </section>
+      <div class="grid">
+        <div class="column">
+          <section class="card" aria-labelledby="schedule-title">
+            <h2 class="card-title" id="schedule-title">Payout schedule</h2>
+            <p class="card-note">Each member wins once, in the order they joined.</p>
+            <div id="schedule"></div>
+          </section>
+          <section class="card" aria-labelledby="history-title">
+            <div class="card-head">
+              <h2 class="card-title" id="history-title">Transaction history</h2>
+              <div id="history-filter" class="filters" role="group" aria-label="Filter transactions"></div>
+            </div>
+            <div id="history"></div>
+          </section>
+        </div>
 
-  <section>
-    <h2>Early withdrawals</h2>
-    <form id="propose-form">
-      <label>Who receives it <input id="recipient" required placeholder="member.testnet"></label>
-      <label>Amount in NEAR <input id="amount" required inputmode="decimal" placeholder="0.05"></label>
-      <button>Request early withdrawal</button>
-      <p>Costs a 0.1 NEAR bond, returned unless the circle refuses the request.</p>
-    </form>
-    <div id="proposals"></div>
-  </section>
+        <div class="column">
+          <section class="card" aria-labelledby="notifications-title">
+            <h2 class="card-title" id="notifications-title">Notifications</h2>
+            <p class="card-note">Worked out from this circle while the page is open.</p>
+            <div id="notifications"></div>
+          </section>
+          <section class="card" aria-labelledby="members-title">
+            <h2 class="card-title" id="members-title">Members</h2>
+            <div id="members"></div>
+            <div id="actions" class="card-actions"></div>
+          </section>
+          <section class="card" aria-labelledby="approvals-title">
+            <h2 class="card-title" id="approvals-title">Early withdrawals and approvals</h2>
+            <div id="proposals"></div>
+            <details>
+              <summary>Request an early withdrawal</summary>
+              <form id="propose-form">
+                <label>Who receives it <input id="recipient" required list="member-options" autocomplete="off" placeholder="member.testnet"></label>
+                <datalist id="member-options"></datalist>
+                <label>Amount in NEAR <input id="amount" required inputmode="decimal" placeholder="0.05"></label>
+                <button class="button">Request early withdrawal</button>
+                <p class="form-note">Needs a connected wallet. Costs a 0.1 NEAR bond, returned unless the circle refuses the request.</p>
+              </form>
+            </details>
+          </section>
+        </div>
+      </div>
 
-  <section>
-    <h2>Create a circle</h2>
-    <p>Needs a connected wallet, two approvals and about 8 testnet NEAR: 6 for the DAO and 2 for the circle.</p>
-    <form id="create-form">
-      <label>Members, one account per line <textarea id="members" rows="3" required></textarea></label>
-      <label>Contribution per round, in NEAR <input id="contribution" required inputmode="decimal" value="0.1"></label>
-      <label>Round duration, in seconds (30 days is 2592000) <input id="duration" required type="number" min="1" max="4294967295" value="3600"></label>
-      <button>Create circle</button>
-    </form>
-    <p id="create-status"></p>
-  </section>
+      <div class="tools">
+        <section class="card" aria-labelledby="open-title">
+          <h2 class="card-title" id="open-title">Open a circle</h2>
+          <form id="load-form">
+            <label>Circle account <input id="circle-id" required autocomplete="off" placeholder="circle.yourname.testnet"></label>
+            <button class="button">Open</button>
+          </form>
+        </section>
+        <section class="card" aria-labelledby="create-title">
+          <h2 class="card-title" id="create-title">Create a circle</h2>
+          <p class="card-note">Needs a connected wallet, two approvals and about 8 testnet NEAR: 6 for the DAO and 2 for the circle.</p>
+          <form id="create-form">
+            <label>Members, one account per line <textarea id="members-input" rows="3" required></textarea></label>
+            <label>Contribution per round, in NEAR <input id="contribution" required inputmode="decimal" value="0.1"></label>
+            <label>Round duration, in seconds (30 days is 2592000) <input id="duration" required type="number" min="1" max="4294967295" value="3600"></label>
+            <button class="button">Create circle</button>
+          </form>
+          <p id="create-status"></p>
+        </section>
+      </div>
 
+      <p class="footnote">Everything shown is read from NEAR testnet: circle state from the contract and DAO, past transactions from FastNEAR's API. Transaction links open NEAR Rocks.</p>
+    </main>
+  </div>
+  <p id="payout-note" class="payout-note" role="status" hidden></p>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
