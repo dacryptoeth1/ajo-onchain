@@ -1,0 +1,18 @@
+{
+  "name": "near-ajo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Ajo onchain: a rotating savings circle on NEAR backed by a Sputnik DAO",
+  "scripts": {
+    "accounts": "node scripts/create-accounts.mjs",
+    "dao": "node scripts/create-dao.mjs",
+    "test:vote": "node scripts/test-transfer-vote.mjs",
+    "contract:build": "node scripts/build-contract.mjs",
+    "test:circle": "node scripts/test-circle.mjs",
+    "cleanup": "node scripts/cleanup.mjs"
+  },
+  "dependencies": {
+    "near-api-js": "7.4.0"
+  }
+}

@@ -1,0 +1,8 @@
+# Required for real contract builds. Without it near-sdk compiles its off-chain code paths and
+# every contract error becomes an opaque trap. cargo-near sets this; plain cargo does not.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'near']
+
+# Windows only: stops getrandom needing dlltool, which the GNU Rust toolchain cannot run alone.
+[target.x86_64-pc-windows-gnu]
+rustflags = ['--cfg', 'getrandom_backend="windows_legacy"']

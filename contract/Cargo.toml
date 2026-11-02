@@ -1,0 +1,20 @@
+[package]
+name = "ajo-circle"
+version = "0.1.0"
+edition = "2021"
+description = "One rotating savings circle: fixed contributions, automatic payouts, DAO-approved early withdrawals"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5.30.0"
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+strip = "symbols"
+panic = "abort"
+overflow-checks = true
