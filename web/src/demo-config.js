@@ -8,10 +8,6 @@ export default {
   },
   "runs": [
     {
-      "full": "demo-full-38db26.ajo-4f0b31-deployer.testnet",
-      "late": "demo-late-06d534.ajo-4f0b31-deployer.testnet"
-    },
-    {
       "full": "demo-full-347116.ajo-4f0b31-deployer.testnet",
       "late": "demo-late-dfbf40.ajo-7ebbef-deployer.testnet"
     },
@@ -26,6 +22,10 @@ export default {
     {
       "full": "demo-full-921d12.ajo-196e84-deployer.testnet",
       "late": "demo-late-5c68e1.ajo-196e84-deployer.testnet"
+    },
+    {
+      "full": "demo-full-edb9eb.ajo-196e84-deployer.testnet",
+      "late": "demo-late-ea2a5d.ajo-920d38-deployer.testnet"
     }
   ]
 };
