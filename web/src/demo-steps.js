@@ -7,8 +7,10 @@ const WITHDRAWAL = "50000000000000000000000"; // 0.05 NEAR
 const LATE_WITHDRAWAL = "10000000000000000000000"; // 0.01 NEAR
 
 const join = (circle, signer) => ({ id: `${circle}-join-${signer}`, circle, signer, action: "join", text: `${signer} joins` });
-const pay = (circle, signer, round, text = `${signer} pays round ${round + 1}`) => ({
-  id: `${circle}-pay-${round}-${signer}`, circle, signer, action: "pay", text,
+const pay = (circle, signer, round, payoutText) => ({
+  id: `${circle}-pay-${round}-${signer}`, circle, signer, action: "pay",
+  text: payoutText ?? `${signer} pays round ${round + 1}`,
+  payout: Boolean(payoutText),
 });
 const vote = (circle, signer, text) => ({ id: `${circle}-vote-${signer}`, circle, signer, action: "vote", text });
 

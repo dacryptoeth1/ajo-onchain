@@ -1,6 +1,6 @@
 import { chainNowMs, failuresIn, fetchTransaction, formatNear, loadWithdrawals, parseNear, txUrl, view } from "./chain.js";
 import { buildDaoPolicy } from "./dao-policy.js";
-import { runDemo } from "./demo-steps.js";
+import { STEPS, runDemo } from "./demo-steps.js";
 import { circleLogs, withdrawalOutcome } from "./outcome.js";
 import { connectWallet, disconnectWallet, functionCall, sendTransaction, watchWallet } from "./wallet.js";
 
@@ -10,6 +10,7 @@ const FACTORY = "sputnikv2.testnet";
 const DAO_DEPOSIT = 6n * 10n ** 24n;
 const CIRCLE_FUNDING = 2n * 10n ** 24n;
 const PROPOSAL_PERIOD_NS = String(72n * 3600n * 1_000_000_000n);
+const PAYOUT_NOTE_MS = 4000;
 
 const REFRESH_MS = 5000;
 const app = { signer: null, circleId: null, circle: null, policy: null, withdrawals: [], clockOffsetMs: 0, demoRunning: false, readFailed: false };
@@ -19,6 +20,27 @@ function showError(error) {
   const message = error ? String(error.message ?? error) : "";
   $("error").textContent = message;
   $("error").hidden = !message;
+}
+
+/** A short note that a round paid out. It works without motion too, and then it just disappears. */
+let payoutNoteTimer;
+function showPayoutNote(text) {
+  const note = $("payout-note");
+  clearTimeout(payoutNoteTimer);
+  note.textContent = text;
+  note.hidden = false;
+  note.classList.remove("show");
+  void note.offsetWidth; // Restarts the animation when payouts come close together.
+  note.classList.add("show");
+  payoutNoteTimer = setTimeout(() => { note.hidden = true; }, PAYOUT_NOTE_MS);
+}
+
+function setDemoProgress(fraction, running) {
+  const bar = $("demo-progress");
+  bar.hidden = false;
+  bar.classList.toggle("running", running);
+  bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+  bar.firstElementChild.style.transform = `scaleX(${fraction})`;
 }
 
 // --- Which transactions this browser saw for each proposal, so their logs can be read later.
@@ -165,6 +187,11 @@ async function refresh() {
     const policy = app.policy?.daoId === circle.dao_id ? app.policy : { ...(await view(circle.dao_id, "get_policy")), daoId: circle.dao_id };
     const withdrawals = await loadWithdrawals(circle.dao_id, circleId);
     if (circleId !== app.circleId) return; // Another circle was opened meanwhile.
+    // The round only moves on when the winner's payout has been sent, whoever made the last payment.
+    const previous = app.circle;
+    if (previous && circle.round > previous.round) {
+      showPayoutNote(`Round ${previous.round + 1} complete: payout sent to ${previous.members[previous.round]}.`);
+    }
     Object.assign(app, { circle, policy, withdrawals, clockOffsetMs: now - Date.now() });
     if (app.readFailed) showError(null); // A passing read clears an earlier failed one.
     app.readFailed = false;
@@ -345,6 +372,9 @@ $("run-demo").addEventListener("click", async () => {
   app.demoRunning = true;
   $("run-demo").disabled = true;
   $("demo-log").innerHTML = "";
+  const totalSteps = STEPS.filter((step) => step.action).length;
+  let finishedSteps = 0;
+  setDemoProgress(0, true);
   const started = Date.now();
   let daoId;
   let current;
@@ -359,13 +389,17 @@ $("run-demo").addEventListener("click", async () => {
       },
       onSection: (text) => log(escapeHtml(text), "section-title"),
       onStep: (step, circleId) => {
-        current = log(`${escapeHtml(step.text)}...`);
+        current = log(`${escapeHtml(step.text)}...`, "pending");
         if (circleId !== app.circleId) openCircle(circleId);
       },
       onResult: (step, circleId, result) => {
-        current.innerHTML = result.hash
+        const check = step.payout ? '<span class="check" aria-hidden="true">✓</span> ' : "";
+        current.classList.remove("pending");
+        current.innerHTML = check + (result.hash
           ? `${escapeHtml(step.text)}. <a href="${txUrl(result.hash)}" target="_blank" rel="noopener">transaction</a>`
-          : `${escapeHtml(step.text)}. Done.`;
+          : `${escapeHtml(step.text)}. Done.`);
+        finishedSteps += 1;
+        setDemoProgress(finishedSteps / totalSteps, true);
         if (step.action === "vote") saveVote(daoId, result.proposalId, result.hash, result.sender);
         if (step.id === "late-vote-m3") tooLateProposal = result.proposalId;
       },
@@ -376,8 +410,10 @@ $("run-demo").addEventListener("click", async () => {
     const outcome = withdrawalOutcome(status, await logsFor(daoId, tooLateProposal, app.circleId));
     log(`Demo finished in ${seconds} seconds.`, "section-title");
     log(`The late approval's DAO status is ${escapeHtml(status)}, but what really happened: <strong>${escapeHtml(outcome.text)}</strong>`);
+    setDemoProgress(1, false);
   } catch (error) {
     log(`The demo stopped: ${escapeHtml(error.message ?? error)}`, "error");
+    $("demo-progress").hidden = true; // A full or moving bar would suggest it is still working.
   } finally {
     app.demoRunning = false;
     $("run-demo").disabled = false;
