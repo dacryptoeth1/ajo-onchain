@@ -10,7 +10,8 @@
     "test:vote": "node scripts/test-transfer-vote.mjs",
     "contract:build": "node scripts/build-contract.mjs",
     "test:circle": "node scripts/test-circle.mjs",
-    "cleanup": "node scripts/cleanup.mjs"
+    "cleanup": "node scripts/cleanup.mjs",
+    "demo:prepare": "node scripts/prepare-demo.mjs"
   },
   "dependencies": {
     "near-api-js": "7.4.0"

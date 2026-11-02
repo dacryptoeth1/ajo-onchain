@@ -10,9 +10,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Account, KeyPair, actions } from "near-api-js";
 import {
-  FACTORY, FAUCET_URL, SILENCE_DAO_FILE, TGAS, balanceOf, buildDaoPolicy, call, formatNear, isAllMembers,
-  loadAccounts, loadDeployers, loadDeployment, near, provider, readJson, sameSet, saveDeployers, txUrl, view,
-  writeJson,
+  FACTORY, SILENCE_DAO_FILE, TGAS, balanceOf, buildDaoPolicy, call, ensureDeployer as ensureFunded, formatNear,
+  isAllMembers, loadAccounts, loadDeployment, near, provider, readJson, sameSet, txUrl, view, writeJson,
 } from "./lib.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -59,25 +58,7 @@ if (names.length === 0 || names.some((name) => !SCENARIO_NAMES.includes(name))) 
 const { members: [m1, m2, m3], outsider } = loadAccounts();
 const memberIds = [m1, m2, m3].map((m) => m.accountId);
 const code = readFileSync(WASM);
-
-async function ensureDeployer() {
-  const deployers = loadDeployers();
-  const current = deployers.at(-1);
-  if (current && (await balanceOf(current.accountId)) >= DEPLOYER_MINIMUM) {
-    return new Account(current.accountId, provider, current.privateKey);
-  }
-  const keyPair = KeyPair.fromRandom("ed25519");
-  const accountId = `ajo-${randomBytes(3).toString("hex")}-deployer.testnet`;
-  const response = await fetch(FAUCET_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ newAccountId: accountId, newAccountPublicKey: keyPair.getPublicKey().toString() }),
-  });
-  if (!response.ok) throw new Error(`Faucet refused ${accountId}: ${response.status}`);
-  saveDeployers([...deployers, { accountId, privateKey: keyPair.toString() }]);
-  console.log(`created ${accountId}`);
-  return new Account(accountId, provider, keyPair.toString());
-}
+const ensureDeployer = () => ensureFunded(DEPLOYER_MINIMUM);
 
 /** Creates, deploys and initializes in one transaction, adding no access key to the account. */
 async function deployCircle(prefix, daoId, contribution, invited, roundDurationSec = LONG_ROUND_S) {

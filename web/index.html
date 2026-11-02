@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ajo Circle</title>
+  <link rel="icon" href="data:,">
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; line-height: 1.45; }
+    section { border-top: 1px solid #999; padding: 12px 0; }
+    h1, h2 { margin: 0 0 8px; }
+    label { display: block; margin: 8px 0; }
+    input, textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; padding: 4px; }
+    button { font: inherit; padding: 4px 10px; margin: 4px 4px 4px 0; }
+    code { overflow-wrap: anywhere; }
+    li { margin: 4px 0; }
+    #demo-log { padding-left: 20px; list-style: none; }
+    .section-title { list-style: none; font-weight: bold; margin: 12px 0 4px -20px; }
+    .proposal { border: 1px solid #999; padding: 8px; margin: 8px 0; }
+    .outcome { font-weight: bold; }
+    .error { color: #b00020; font-weight: bold; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Ajo Circle</h1>
+  <p>A rotating savings circle on NEAR testnet. Members pay in each round, and the pot goes to that round's winner. Taking money early needs approval from every member.</p>
+
+  <section>
+    <h2>See it work</h2>
+    <p>No wallet needed. This runs a full circle on testnet with three test accounts, in under 3 minutes.</p>
+    <button id="run-demo">Run demo</button>
+    <ul id="demo-log"></ul>
+  </section>
+
+  <section>
+    <h2>Wallet</h2>
+    <p id="wallet-status">Not connected.</p>
+    <button id="connect">Connect wallet</button>
+    <button id="disconnect" hidden>Disconnect</button>
+  </section>
+
+  <section>
+    <h2>Open a circle</h2>
+    <form id="load-form">
+      <label>Circle account <input id="circle-id" required placeholder="circle.yourname.testnet"></label>
+      <button>Open</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Circle</h2>
+    <p id="error" class="error" role="alert" hidden></p>
+    <div id="state"><p>No circle open.</p></div>
+    <div id="actions"></div>
+  </section>
+
+  <section>
+    <h2>Early withdrawals</h2>
+    <form id="propose-form">
+      <label>Who receives it <input id="recipient" required placeholder="member.testnet"></label>
+      <label>Amount in NEAR <input id="amount" required inputmode="decimal" placeholder="0.05"></label>
+      <button>Request early withdrawal</button>
+      <p>Costs a 0.1 NEAR bond, returned unless the circle refuses the request.</p>
+    </form>
+    <div id="proposals"></div>
+  </section>
+
+  <section>
+    <h2>Create a circle</h2>
+    <p>Needs a connected wallet, two approvals and about 8 testnet NEAR: 6 for the DAO and 2 for the circle.</p>
+    <form id="create-form">
+      <label>Members, one account per line <textarea id="members" rows="3" required></textarea></label>
+      <label>Contribution per round, in NEAR <input id="contribution" required inputmode="decimal" value="0.1"></label>
+      <label>Round duration, in seconds (30 days is 2592000) <input id="duration" required type="number" min="1" max="4294967295" value="3600"></label>
+      <button>Create circle</button>
+    </form>
+    <p id="create-status"></p>
+  </section>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -82,6 +82,24 @@ Use the `stable-x86_64-pc-windows-gnu` Rust toolchain with the `wasm32-unknown-u
 
 The tests all run on testnet, because near-sdk's local `unit-testing` feature needs a C toolchain that this machine does not have.
 
+## Frontend
+
+`web/` is a single page: wallet connection through NEAR Connect, circle state, and every circle action. **Run demo** walks through a full circle and a missed deadline on testnet, with no wallet, in about 2.5 minutes.
+
+```bash
+npm run demo:prepare -- 5   # deploys 5 demo runs (20 NEAR, not recoverable), and writes web/.env.local
+cd web
+npm install
+npm test                    # real-outcome logic
+npm run dev                 # http://localhost:5173
+```
+
+- **Keys:** the demo's keys are server-only environment variables (`DEMO_KEY_M1`, `DEMO_KEY_M2`, `DEMO_KEY_M3`), read by `web/api/demo.js`. That function signs only the fixed steps in `web/src/demo-steps.js`, on the circles in `web/src/demo-config.js`. Never give these variables a `VITE_` prefix, because Vite copies those into the public page.
+- **Deploying:** create a Vercel project with `web` as its root directory, and set the three keys in its environment variables.
+- **Withdrawal outcomes:** a proposal's status does not say whether money moved. The page reads the circle's own log line from the vote's transaction. If this browser never saw that transaction, it shows "Not confirmed" rather than guessing.
+- **Demo runs are used up:** each run takes two fresh circles. Run `npm run demo:prepare` again to add more, which also drops used ones. An interrupted run's circles are not reused.
+- **Cleanup deletes the demo accounts:** do not run `npm run cleanup` while the demo needs to work.
+
 ## DAO policy
 
 | Setting | Value |
@@ -104,6 +122,8 @@ The default threshold is also 100% because thresholds are set per proposal kind.
 - **The contract cannot check that the DAO's members match the circle's.** Deploy scripts must check this, as `npm run test:circle` does.
 - **The contract cannot be fixed after deployment.** It has no keys, so a bug means deploying a new circle.
 - **A vote after expiry costs the proposer their 0.1 NEAR bond.** It marks the proposal `Expired`, and `Finalize` then refuses it, so the bond stays in the DAO. Finalize expired proposals instead of voting on them.
+
+- **The demo endpoint is public.** It only signs the fixed demo steps, but anyone can call it repeatedly, which could use up the demo circles or spend the demo accounts' testnet NEAR on proposal bonds. It has no rate limiting.
 
 ## Future work
 

@@ -2,7 +2,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Account, JsonRpcProvider } from "near-api-js";
+import { randomBytes } from "node:crypto";
+import { Account, JsonRpcProvider, KeyPair } from "near-api-js";
+
+export { buildDaoPolicy } from "../web/src/dao-policy.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const KEYS_FILE = join(ROOT, ".keys", "testnet-accounts.json");
@@ -66,35 +69,30 @@ export function saveDeployers(deployers) {
   writeJson(DEPLOYER_FILE, { deployers }, { mode: 0o600 });
 }
 
+/** The newest deployer if it holds at least `minimum`, otherwise a new one from the faucet. */
+export async function ensureDeployer(minimum) {
+  const deployers = loadDeployers();
+  const current = deployers.at(-1);
+  if (current && (await balanceOf(current.accountId)) >= minimum) {
+    return new Account(current.accountId, provider, current.privateKey);
+  }
+  const keyPair = KeyPair.fromRandom("ed25519");
+  const accountId = `ajo-${randomBytes(3).toString("hex")}-deployer.testnet`;
+  const response = await fetch(FAUCET_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ newAccountId: accountId, newAccountPublicKey: keyPair.getPublicKey().toString() }),
+  });
+  if (!response.ok) throw new Error(`Faucet refused ${accountId}: ${response.status}`);
+  saveDeployers([...deployers, { accountId, privateKey: keyPair.toString() }]);
+  console.log(`created ${accountId}`);
+  return new Account(accountId, provider, keyPair.toString());
+}
+
 export function loadDeployment() {
   const deployment = readJson(DEPLOYMENT_FILE);
   if (!deployment) throw new Error("No DAO found. Run `npm run dao` first.");
   return deployment;
-}
-
-const ALL_MEMBERS = { weight_kind: "RoleWeight", quorum: "0", threshold: [1, 1] };
-
-/** Members-only DAO policy where every proposal kind needs 100% of members. */
-export function buildDaoPolicy(memberIds, proposalPeriodNs) {
-  return {
-    // Only members can do anything. Sputnik's default "all" role, which lets anyone
-    // file proposals, is left out on purpose.
-    roles: [
-      {
-        name: "members",
-        kind: { Group: memberIds },
-        permissions: ["*:AddProposal", "*:VoteApprove", "*:VoteReject", "*:VoteRemove", "*:Finalize"],
-        vote_policy: { transfer: ALL_MEMBERS },
-      },
-    ],
-    // The default must also be 100%. At 50%, two members could pass a
-    // remove_member_from_role or policy proposal and sidestep the transfer rule.
-    default_vote_policy: ALL_MEMBERS,
-    proposal_bond: near("0.1").toString(),
-    proposal_period: proposalPeriodNs,
-    bounty_bond: near("0.1").toString(),
-    bounty_forgiveness_period: proposalPeriodNs,
-  };
 }
 
 export const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
