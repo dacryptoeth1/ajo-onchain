@@ -4,6 +4,8 @@ A rotating savings circle on NEAR, built for the NEAR Hackathon (tracks 08 Real-
 
 Members pay in each round, and the pot automatically goes to that round's winner in rotation order. An early withdrawal needs approval from ALL members through a Sputnik DAO, and silence counts as no. Everything runs onchain on NEAR, on testnet for now.
 
+**Live site:** https://ajo-onchain-vert.vercel.app
+
 ## How it works
 
 Each circle is one contract (`contract/src/lib.rs`) paired with one DAO.
